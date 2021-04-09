@@ -1,0 +1,98 @@
+#include  <msp430xG46x.h>
+
+Debounce     MACRO  cycles
+             LOCAL  L
+             mov.w  cycles,R15     
+L            dec.w  R15                     
+             jnz    L          
+             ENDM
+
+                MODULE    Function
+                PUBLIC    Shitleds,PWM_func,FreqCouner,PORT1_ISR,Basic_Timer_ISR,PORT2_ISR
+                EXTERN    state,counter,PullUp,PullDown
+                RSEG      CODE
+                
+;=====================================================================            
+   
+Shitleds    mov.b   #BTDIV+BT_fCLK2_DIV64,&BTCTL
+            bis.b   #BTIE,&IE2
+            mov     #0x0001,&PBOUT
+            bis.w   #CPUOFF+GIE,SR
+            ret        
+;=====================================================================  
+PWM_func    mov.b   #BT_fCLK2_DIV16,&BTCTL
+            bis.b   #BTIE,&IE2
+            bic.b   #0x1,&P3OUT
+            bis.w   #CPUOFF+GIE,SR
+            ret                            
+
+;=====================================================================  
+FreqCouner    mov.b   #BTDIV+BTHOLD+BT_fCLK2_DIV128,&BTCTL
+            bis.b   #BTIE,&IE2
+            bis.b   #0x01,&P1IE
+            bis.w   #CPUOFF+GIE,SR
+            ret                            
+;============================================================= 
+PORT1_ISR   bic.b #BTHOLD,&BTCTL
+            inc    counter
+            bic.b  #0x01,&P1IFG
+            reti
+
+;------------------------------------------------------------------------------------------ 
+Basic_Timer_ISR
+
+BT_0         cmp     #0,state
+             jnz     BT_1
+             cmp     #0x8000,&PBOUT
+             jz      end_BT_0
+             RLA     &PBOUT
+             reti
+end_BT_0     MOV     #1,&PBOUT
+             reti             
+BT_1        cmp     #1,state 
+            jnz     BT_2
+            XOR.B   #1,P3OUT
+            reti
+BT_2        cmp     #2,state 
+            jnz     BT_0
+            MOV    &counter,PBOUT
+            mov    #0,counter 
+            reti            
+;------------------------------------------------------------------------------------------ 
+;               PORT1 Interrupt Service Routine  of SW1=P1.0
+;------------------------------------------------------------------------------------------
+PORT2_ISR    Debounce #PullUp
+             clr     &PBOUT
+             bic.b   #BTIE,&IE2
+             bic.b   #0x01,&P1IE
+             mov.b   #BTDIV+BTHOLD+BT_fCLK2_DIV16,&BTCTL  ; ACLK/(256*16)
+             clr.b   &BTCNT1
+             clr.b   &BTCNT2
+             mov    #0,counter              
+                          
+             
+             bit.b  #0x01,&P2IFG   ;check if P1.5 is pushed
+             jnz    P2_0 
+             bit.b  #0x02,&P2IFG   ;check if P1.6 is pushed
+             jnz    P2_1
+             bit.b  #0x04,&P2IFG   ;check if P1.7 is pushed
+             jnz    P2_2     
+             bit.b  #0x08,&P2IFG   ;check if P1.8 is pushed
+             jnz    P2_3              
+             reti                  ; interrupt hapened from another source
+             
+P2_0         mov    #0,state       ; rlLED
+             jmp    exitLPM0
+P2_1         mov    #1,state       ; rrLED
+             jmp    exitLPM0        
+P2_2         mov    #2,state       ; rlLED
+             jmp    exitLPM0
+P2_3         mov    #3,state       ; rrLED
+             jmp    exitLPM0    
+             
+exitLPM0     bic    #CPUOFF,0(SP)  ; WAKES THE CPU , 
+             bic.b  #0x0f,&P2IFG  
+             reti
+                ENDMOD
+;=============================================================            
+                END
